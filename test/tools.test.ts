@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import plugin, { registerMemfusion } from "../index.js";
+import { createFusionHandle } from "../src/fusion.js";
+import { createMemoryTools, decodeToolRef, encodeToolRef, type OpenProvider } from "../src/tools.js";
+import type { MemoryProviderOpenParams } from "../src/types.js";
+import { fakeBackend, hit } from "./helpers.js";
+
+function fusedOpener(seen: MemoryProviderOpenParams[] = []): OpenProvider {
+  return async (params) => {
+    seen.push(params);
+    const core = fakeBackend("memory-core", [hit("memory-core", "1", "core fact", 0.9)], { texts: { "1": "full text" } });
+    return {
+      providerId: "memfusion",
+      provider: createFusionHandle({
+        ownerId: "memfusion",
+        backends: [{ backendId: "memory-core", providerId: "memory-core", handle: core }],
+      }),
+    };
+  };
+}
+
+const parse = (result: { content: { text: string }[] }) => JSON.parse(result.content[0]!.text);
+
+test("tool refs round-trip and reject garbage", () => {
+  const reference = { providerId: "memfusion", id: '["memory-core","1"]', fragment: "L2" };
+  assert.deepEqual(decodeToolRef(encodeToolRef(reference)), reference);
+  assert.equal(decodeToolRef("!!!"), null);
+});
+
+test("memory_search uses session authority and memory_get reads the hit", async () => {
+  const seen: MemoryProviderOpenParams[] = [];
+  const tools = createMemoryTools(
+    { agentId: "main", sessionKey: "agent:main:chat", sessionId: "s1", sandboxed: true, config: { a: 1 } },
+    fusedOpener(seen),
+  )!;
+  const search = parse(await tools[0]!.execute("1", { query: "fact" }));
+  assert.equal(search.results[0].store, "memory-core");
+  assert.equal(search.results[0].excerpt, "core fact");
+  assert.deepEqual(seen[0]!.context.authority, {
+    kind: "session",
+    sessionKey: "agent:main:chat",
+    sandboxed: true,
+    sessionId: "s1",
+  });
+  assert.equal(seen[0]!.agentId, "main");
+  const got = parse(await tools[1]!.execute("2", { ref: search.results[0].ref }));
+  assert.deepEqual(got, { status: "ok", store: "memory-core", text: "full text" });
+});
+
+test("caller context goes stale once the tool call finishes", async () => {
+  const seen: MemoryProviderOpenParams[] = [];
+  const tools = createMemoryTools({ agentId: "main" }, fusedOpener(seen))!;
+  await tools[0]!.execute("1", { query: "fact" });
+  assert.throws(() => seen[0]!.context.assertCurrent(), /completed/);
+  assert.deepEqual(seen[0]!.context.authority, { kind: "host", operation: "memfusion.tool" });
+});
+
+test("tools refuse to run when another plugin owns the memory slot", async () => {
+  const tools = createMemoryTools({ agentId: "main" }, async () => ({
+    providerId: "memory-core",
+    provider: fakeBackend("memory-core", []),
+  }))!;
+  const out = parse(await tools[0]!.execute("1", { query: "x" }));
+  assert.match(out.error, /owned by memory-core/);
+});
+
+test("no tools without an agent", () => {
+  assert.equal(createMemoryTools({}, fusedOpener()), null);
+});
+
+test("register wires the provider runtime and both tools", async () => {
+  const registered: { capability?: unknown; tools: string[] } = { tools: [] };
+  registerMemfusion(
+    {
+      pluginConfig: { rrfK: 10 },
+      registerMemoryCapability(capability) {
+        registered.capability = capability;
+      },
+      registerTool(_tool, { name }) {
+        registered.tools.push(name);
+      },
+    },
+    async () => fusedOpener(),
+  );
+  assert.deepEqual(registered.tools, ["memory_search", "memory_get"]);
+  const runtime = (registered.capability as { providerRuntime: { open: (p: unknown) => Promise<{ provider: unknown }> } }).providerRuntime;
+  const result = await runtime.open({ cfg: {}, agentId: "main", context: { authority: { kind: "host", operation: "t" }, assertCurrent() {} } });
+  assert.equal(result.provider, null, "no backends offered");
+  assert.equal(plugin.id, "memfusion");
+  assert.equal(plugin.kind, "memory");
+});

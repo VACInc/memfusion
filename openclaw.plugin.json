@@ -1,0 +1,32 @@
+{
+  "id": "memfusion",
+  "name": "Memory Fusion",
+  "description": "Owns the memory slot and searches every enabled OpenClaw memory plugin at once, merging results by rank.",
+  "version": "0.1.0",
+  "kind": "memory",
+  "memoryBackends": true,
+  "contracts": {
+    "tools": ["memory_search", "memory_get"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "rrfK": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "Reciprocal rank fusion constant. Larger values flatten the gap between ranks. Default 60."
+      },
+      "weights": {
+        "type": "object",
+        "additionalProperties": { "type": "number", "minimum": 0 },
+        "description": "Rank weight per backend plugin id (default 1). 0 drops a backend from results."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Per-backend deadline for search, get and candidates calls, in milliseconds. Default 15000."
+      }
+    }
+  }
+}

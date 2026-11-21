@@ -1,0 +1,54 @@
+{
+  "name": "@vacinc/memfusion",
+  "version": "0.1.0",
+  "description": "OpenClaw memory fusion: one memory slot owner that searches every enabled memory plugin at once and merges results by rank.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VACInc/memfusion.git"
+  },
+  "homepage": "https://github.com/VACInc/memfusion#readme",
+  "bugs": {
+    "url": "https://github.com/VACInc/memfusion/issues"
+  },
+  "keywords": ["openclaw", "openclaw-plugin", "memory", "fusion"],
+  "openclaw": {
+    "extensions": ["./dist/index.js"],
+    "compat": {
+      "pluginApi": ">=2026.11.7",
+      "minGatewayVersion": "2026.11.7"
+    },
+    "build": {
+      "openclawVersion": "2026.11.7",
+      "pluginSdkVersion": "2026.11.7"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "check": "tsc --noEmit",
+    "test": "node --test --import tsx test/*.test.ts"
+  },
+  "files": ["dist/", "assets/", "openclaw.plugin.json", "README.md"],
+  "peerDependencies": {
+    "openclaw": ">=2026.11.7"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@10.32.1"
+}
