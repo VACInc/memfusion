@@ -43,7 +43,8 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "check": "tsc --noEmit",
-    "test": "node --test --import tsx test/*.test.ts"
+    "test": "node --test --import tsx test/*.test.ts",
+    "mutation": "stryker run"
   },
   "files": [
     "dist/",
@@ -60,6 +61,7 @@
     }
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.1.1",
     "@types/node": "^22.15.30",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"

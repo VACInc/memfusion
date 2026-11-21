@@ -91,7 +91,10 @@ pnpm install
 pnpm test     # node:test suite
 pnpm check    # tsc --noEmit
 pnpm build    # dist/
+pnpm mutation # Stryker mutation testing; CI fails below 90%
 ```
+
+The test suite is mutation-tested with [Stryker](https://stryker-mutator.io): every source file is mutated and the suite must catch at least 90% of the mutants (currently about 95%). The survivors left are equivalent mutants such as defensive re-checks and labels.
 
 ## Releasing
 
