@@ -112,3 +112,27 @@ test("memory_store rejects empty text and reports when nothing can store", async
     reason: "no memory store accepts writes",
   });
 });
+
+test("workspace writes refuse symlinked memory paths", async () => {
+  const { appendWorkspaceMemory } = await import("../src/workspace.js");
+  const { mkdir, symlink, writeFile } = await import("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "memfusion-ws-"));
+  const outside = await mkdtemp(path.join(tmpdir(), "memfusion-out-"));
+  try {
+    const a = path.join(root, "a");
+    await mkdir(a);
+    await symlink(outside, path.join(a, "memory"));
+    await assert.rejects(appendWorkspaceMemory({ workspaceDir: a, text: "x" }), /not a plain directory/);
+
+    const b = path.join(root, "b");
+    await mkdir(path.join(b, "memory"), { recursive: true });
+    const day = memoryDayStamp(new Date(), "UTC");
+    await writeFile(path.join(outside, "victim"), "safe");
+    await symlink(path.join(outside, "victim"), path.join(b, "memory", `${day}.md`));
+    await assert.rejects(appendWorkspaceMemory({ workspaceDir: b, text: "x", timeZone: "UTC" }), /ELOOP|symbolic/i);
+    assert.equal(await readFile(path.join(outside, "victim"), "utf8"), "safe");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});

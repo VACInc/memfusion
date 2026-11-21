@@ -1,4 +1,5 @@
-import { mkdir, appendFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath } from "node:fs/promises";
 import path from "node:path";
 
 /** Day stamp in the given IANA time zone (host default when omitted). */
@@ -31,10 +32,27 @@ export async function appendWorkspaceMemory(params: {
 }): Promise<string> {
   const now = params.now ?? new Date();
   const relativePath = `memory/${memoryDayStamp(now, params.timeZone)}.md`;
-  const target = path.join(params.workspaceDir, relativePath);
-  await mkdir(path.dirname(target), { recursive: true });
+  // Confine the write: no symlinked memory directory or day file may redirect it.
+  const root = await realpath(params.workspaceDir);
+  const dir = path.join(root, "memory");
+  const dirStat = await lstat(dir).catch(() => null);
+  if (dirStat && !dirStat.isDirectory()) {
+    throw new Error("workspace memory/ is not a plain directory");
+  }
+  if (!dirStat) await mkdir(dir);
+  const realDir = await realpath(dir);
+  if (realDir !== dir || !realDir.startsWith(root + path.sep)) {
+    throw new Error("workspace memory/ resolves outside the workspace");
+  }
+  const target = path.join(dir, path.basename(relativePath));
   const heading = `## ${clockStamp(now, params.timeZone)}${params.title ? ` ${params.title.replace(/\s+/g, " ").trim()}` : ""}`;
   const tags = params.tags?.length ? `\n\nTags: ${params.tags.join(", ")}` : "";
-  await appendFile(target, `\n${heading}\n\n${params.text.trim()}${tags}\n`, "utf8");
+  // O_NOFOLLOW refuses a symlinked day file; O_APPEND never rewrites existing entries.
+  const handle = await open(target, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o644);
+  try {
+    await handle.appendFile(`\n${heading}\n\n${params.text.trim()}${tags}\n`, "utf8");
+  } finally {
+    await handle.close();
+  }
   return relativePath;
 }
