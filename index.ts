@@ -1,3 +1,4 @@
+import { buildPromptSection, resolveFlushPlan, TOOL_NAMES } from "./src/capability.js";
 import { openFusion } from "./src/fusion.js";
 import { createMemoryTools, OWNER_ID, type OpenProvider, type ToolContext } from "./src/tools.js";
 import type { MemfusionConfig, MemoryProviderOpenParams } from "./src/types.js";
@@ -12,6 +13,10 @@ type MemfusionPluginApi = {
   logger?: { info?: (message: string) => void; warn?: (message: string) => void };
   registerMemoryCapability(capability: {
     providerRuntime: { open(params: MemoryProviderOpenParams): Promise<unknown> };
+    promptBuilder?: (params: { availableTools: Set<string> }) => string[];
+    providerFlushPlanResolver?: (params: unknown) => unknown;
+    recallToolNames?: readonly string[];
+    deterministicRecallToolName?: string;
   }): void;
   registerTool(
     tool: { contextVersion: 2; create(ctx: ToolContext): unknown },
@@ -32,13 +37,17 @@ export function registerMemfusion(api: MemfusionPluginApi, openProvider: () => P
     providerRuntime: {
       open: (params) => openFusion(OWNER_ID, params, config),
     },
+    promptBuilder: buildPromptSection,
+    providerFlushPlanResolver: resolveFlushPlan,
+    recallToolNames: ["memory_search", "memory_get"],
+    deterministicRecallToolName: "memory_search",
   });
   const opener: OpenProvider = async (params) => (await openProvider())(params);
-  for (const [index, name] of ["memory_search", "memory_get"].entries()) {
+  for (const [index, name] of TOOL_NAMES.entries()) {
     api.registerTool(
       {
         contextVersion: 2,
-        create: (ctx) => createMemoryTools(ctx, opener)?.[index] ?? null,
+        create: (ctx) => createMemoryTools(ctx, opener, config)?.[index] ?? null,
       },
       { name },
     );

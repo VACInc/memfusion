@@ -2,11 +2,15 @@
   "id": "memfusion",
   "name": "Memory Fusion",
   "description": "Owns the memory slot and searches every enabled OpenClaw memory plugin at once, merging results by rank.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "memory",
   "memoryBackends": true,
   "contracts": {
-    "tools": ["memory_search", "memory_get"]
+    "tools": [
+      "memory_search",
+      "memory_get",
+      "memory_store"
+    ]
   },
   "configSchema": {
     "type": "object",
@@ -19,13 +23,36 @@
       },
       "weights": {
         "type": "object",
-        "additionalProperties": { "type": "number", "minimum": 0 },
+        "additionalProperties": {
+          "type": "number",
+          "minimum": 0
+        },
         "description": "Rank weight per backend plugin id (default 1). 0 drops a backend from results."
       },
       "timeoutMs": {
         "type": "integer",
         "minimum": 1,
         "description": "Per-backend deadline for search, get and candidates calls, in milliseconds. Default 15000."
+      },
+      "store": {
+        "description": "Where new memories go. \"auto\" (default): every backend that accepts writes, or the workspace memory files (memory/YYYY-MM-DD.md, indexed by memory-core) when none does. \"all\": every writable backend plus the workspace. Or a list of backend plugin ids and/or \"workspace\".",
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "auto",
+              "all"
+            ]
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          }
+        ]
       }
     }
   }

@@ -69,7 +69,7 @@ test("no tools without an agent or a session, so host authority is never borrowe
   assert.equal(createMemoryTools({ agentId: "main" }, fusedOpener()), null);
 });
 
-test("register wires the provider runtime and both tools", async () => {
+test("register wires the provider runtime, recall, flush and all three tools", async () => {
   const registered: { capability?: unknown; tools: string[] } = { tools: [] };
   registerMemfusion(
     {
@@ -83,7 +83,18 @@ test("register wires the provider runtime and both tools", async () => {
     },
     async () => fusedOpener(),
   );
-  assert.deepEqual(registered.tools, ["memory_search", "memory_get"]);
+  assert.deepEqual(registered.tools, ["memory_search", "memory_get", "memory_store"]);
+  const capability = registered.capability as {
+    recallToolNames: string[];
+    deterministicRecallToolName: string;
+    providerFlushPlanResolver: () => { persistenceToolNames: string[]; lookupToolNames: string[] };
+    promptBuilder: (p: { availableTools: Set<string> }) => string[];
+  };
+  assert.deepEqual(capability.recallToolNames, ["memory_search", "memory_get"]);
+  assert.equal(capability.deterministicRecallToolName, "memory_search");
+  assert.deepEqual(capability.providerFlushPlanResolver().persistenceToolNames, ["memory_store"]);
+  assert.deepEqual(capability.promptBuilder({ availableTools: new Set() }), []);
+  assert.match(capability.promptBuilder({ availableTools: new Set(["memory_store"]) }).join("\n"), /memory_store/);
   const runtime = (registered.capability as { providerRuntime: { open: (p: unknown) => Promise<{ provider: unknown }> } }).providerRuntime;
   const result = await runtime.open({ cfg: {}, agentId: "main", context: { authority: { kind: "host", operation: "t" }, assertCurrent() {} } });
   assert.equal(result.provider, null, "no backends offered");

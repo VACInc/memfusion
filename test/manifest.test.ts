@@ -9,7 +9,7 @@ test("manifest owns the memory slot and requests backends", () => {
   assert.equal(manifest.id, "memfusion");
   assert.equal(manifest.kind, "memory");
   assert.equal(manifest.memoryBackends, true);
-  assert.deepEqual(manifest.contracts.tools, ["memory_search", "memory_get"]);
+  assert.deepEqual(manifest.contracts.tools, ["memory_search", "memory_get", "memory_store"]);
 });
 
 test("package and manifest versions match", () => {

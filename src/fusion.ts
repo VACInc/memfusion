@@ -15,7 +15,10 @@ import type {
   MemorySearchPage,
   MemorySearchRequest,
   MemorySource,
+  MemoryStoreRequest,
+  MemoryStoreResult,
 } from "./types.js";
+import { WORKSPACE_TARGET } from "./types.js";
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -46,6 +49,27 @@ async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): 
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+export type StoreTargets = { backends: OpenBackend[]; workspace: boolean };
+
+const isWritable = ({ handle }: OpenBackend) =>
+  handle.capabilities.store === true && typeof handle.store === "function";
+
+/** Resolves the `store` setting against the backends that actually opened. */
+export function resolveStoreTargets(
+  setting: MemfusionConfig["store"],
+  backends: readonly OpenBackend[],
+): StoreTargets {
+  const writable = backends.filter(isWritable);
+  if (setting === "all") return { backends: writable, workspace: true };
+  if (Array.isArray(setting)) {
+    return {
+      backends: writable.filter(({ backendId }) => setting.includes(backendId)),
+      workspace: setting.includes(WORKSPACE_TARGET),
+    };
+  }
+  return writable.length > 0 ? { backends: writable, workspace: false } : { backends: [], workspace: true };
 }
 
 /** Fused capabilities: a feature is claimed only where it can be honored. */
@@ -90,7 +114,11 @@ export function createFusionHandle(params: {
   const config = params.config ?? {};
   const timeoutMs = config.timeoutMs && config.timeoutMs > 0 ? config.timeoutMs : DEFAULT_TIMEOUT_MS;
   const byProviderId = new Map(backends.map((backend) => [backend.providerId, backend]));
-  const capabilities = fuseCapabilities(backends);
+  const storeTargets = resolveStoreTargets(config.store, backends).backends;
+  const capabilities: MemoryProviderCapabilities = {
+    ...fuseCapabilities(backends),
+    ...(storeTargets.length > 0 ? { store: true } : {}),
+  };
   let closed = false;
 
   const assertOpen = () => {
@@ -217,6 +245,31 @@ export function createFusionHandle(params: {
                 typeof handle.candidates === "function" && handle.capabilities.candidates.includes(request.kind),
             );
             return await fanOut(targets, ({ handle }) => handle.candidates!(request), request.limit, "candidates");
+          },
+        }
+      : {}),
+    ...(storeTargets.length > 0
+      ? {
+          async store(request: MemoryStoreRequest): Promise<MemoryStoreResult> {
+            assertOpen();
+            const settled = await Promise.allSettled(
+              storeTargets.map(({ backendId, handle }) =>
+                withDeadline(handle.store!(request), timeoutMs, `${backendId} store`),
+              ),
+            );
+            const reasons: string[] = [];
+            let stored: MemoryStoreResult | undefined;
+            settled.forEach((outcome, index) => {
+              const { backendId } = storeTargets[index]!;
+              if (outcome.status === "rejected") {
+                reasons.push(`${backendId}: ${describe(outcome.reason)}`);
+              } else if (outcome.value.status === "rejected") {
+                reasons.push(`${backendId}: ${outcome.value.reason}`);
+              } else if (!stored) {
+                stored = { status: "stored", reference: toOwnerReference(ownerId, outcome.value.reference) };
+              }
+            });
+            return stored ?? { status: "rejected", reason: reasons.join("; ") || "no store targets" };
           },
         }
       : {}),

@@ -1,9 +1,12 @@
 import type {
   ActiveMemoryProviderResult,
+  MemfusionConfig,
   MemoryCallerContext,
   MemoryProviderOpenParams,
   MemoryReference,
 } from "./types.js";
+import { WORKSPACE_TARGET } from "./types.js";
+import { appendWorkspaceMemory } from "./workspace.js";
 
 export const OWNER_ID = "memfusion";
 const MAX_RESULTS_LIMIT = 50;
@@ -14,6 +17,7 @@ export type ToolContext = {
   runtimeConfig?: unknown;
   getRuntimeConfig?: () => unknown;
   agentId?: string;
+  workspaceDir?: string;
   sessionKey?: string;
   sessionId?: string;
   sandboxed?: boolean;
@@ -112,7 +116,24 @@ async function withProvider<T>(
   }
 }
 
-export function createMemoryTools(ctx: ToolContext, openProvider: OpenProvider): MemoryTool[] | null {
+/** Whether the workspace memory files receive writes, given what the fused provider accepts. */
+export function writesWorkspace(setting: MemfusionConfig["store"], providerStores: boolean): boolean {
+  if (setting === "all") return true;
+  if (Array.isArray(setting)) return setting.includes(WORKSPACE_TARGET);
+  return !providerStores;
+}
+
+function readTimeZone(cfg: unknown): string | undefined {
+  const zone = (cfg as { agents?: { defaults?: { userTimezone?: unknown } } } | undefined)?.agents?.defaults
+    ?.userTimezone;
+  return typeof zone === "string" && zone ? zone : undefined;
+}
+
+export function createMemoryTools(
+  ctx: ToolContext,
+  openProvider: OpenProvider,
+  config: MemfusionConfig = {},
+): MemoryTool[] | null {
   // Without a session the tool would have to borrow host authority; fail closed instead.
   if (!ctx.agentId || !ctx.sessionKey) return null;
   return [
@@ -189,6 +210,62 @@ export function createMemoryTools(ctx: ToolContext, openProvider: OpenProvider):
             text: result.text,
             ...(result.truncated ? { truncated: true, nextFrom: result.nextFrom } : {}),
           };
+        });
+        return jsonResult(value);
+      },
+    },
+    {
+      name: "memory_store",
+      label: "Memory Store",
+      description:
+        "Save a durable memory (Memory Fusion). Routed to the configured memory stores; use it for facts, decisions and preferences worth recalling later.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "The memory to keep, self-contained." },
+          title: { type: "string", description: "Optional short heading." },
+          tags: { type: "array", items: { type: "string" } },
+        },
+        required: ["text"],
+        additionalProperties: false,
+      },
+      async execute(_id, params, signal) {
+        const text = typeof params.text === "string" ? params.text.trim() : "";
+        if (!text) return jsonResult({ error: "text is required" });
+        const title = typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
+        const tags = Array.isArray(params.tags) ? params.tags.filter((tag): tag is string => typeof tag === "string") : undefined;
+        const value = await withProvider(ctx, openProvider, signal, async (provider) => {
+          const stored: { store: string; ref?: string }[] = [];
+          const errors: string[] = [];
+          const providerStores = provider.capabilities.store === true && typeof provider.store === "function";
+          if (providerStores) {
+            const result = await provider.store!({ text, ...(title ? { title } : {}), ...(tags?.length ? { tags } : {}), origin: "tool" });
+            if (result.status === "stored") {
+              stored.push({ store: backendOf(result.reference) ?? "backend", ref: encodeToolRef(result.reference) });
+            } else {
+              errors.push(result.reason);
+            }
+          }
+          if (writesWorkspace(config.store, providerStores)) {
+            if (ctx.sandboxed) {
+              errors.push("workspace memory files are not written from sandboxed sessions");
+            } else if (!ctx.workspaceDir) {
+              errors.push("no agent workspace is available for memory files");
+            } else {
+              const cfg = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
+              const file = await appendWorkspaceMemory({
+                workspaceDir: ctx.workspaceDir,
+                text,
+                ...(title ? { title } : {}),
+                ...(tags?.length ? { tags } : {}),
+                timeZone: readTimeZone(cfg),
+              });
+              stored.push({ store: WORKSPACE_TARGET, ref: file });
+            }
+          }
+          return stored.length > 0
+            ? { status: "stored", stored, ...(errors.length ? { warnings: errors } : {}) }
+            : { status: "rejected", reason: errors.join("; ") || "no memory store accepts writes" };
         });
         return jsonResult(value);
       },

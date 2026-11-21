@@ -8,13 +8,16 @@ Memory Fusion is an OpenClaw memory plugin that searches **every enabled memory 
 - Searches all backends in parallel and merges them with reciprocal rank fusion, so stores with different score scales mix fairly.
 - Merges identical results from several stores into one.
 - Keeps working when a store fails or is slow: the other stores still answer, and the result says which one was missing.
-- Gives agents `memory_search` and `memory_get`; every result names the store it came from.
+- Gives agents `memory_search`, `memory_get` and `memory_store`; every result names the store it came from.
+- Saves new memories where you choose: every store that accepts writes, a list of stores, or the workspace memory files that `memory-core` indexes.
+- Runs the pre-compaction memory flush itself, so long sessions still save what matters, routed by the same `store` setting.
 - Host features that use the memory provider (Active Memory recall, `memory.search`, status and doctor checks) see the fused view.
 
 ## Requirements
 
 - OpenClaw **2026.11.7 or newer**, the first line with memory backend support ([openclaw/openclaw#201340](https://github.com/openclaw/openclaw/pull/201340)). Older hosts skip the plugin at discovery.
-- At least one other memory plugin that serves the provider-neutral `providerRuntime` (bundled `memory-core` does). Plugins that only register legacy tools and hooks cannot be backends yet.
+- Saving to backends and using `memory-core` / `memory-lancedb` as backends need [openclaw/openclaw#202838](https://github.com/openclaw/openclaw/pull/202838) as well. Without it, only plugins with the provider-neutral `providerRuntime` (for example the bundled knowledge plugin) can be backends, and saves go to the workspace memory files.
+- At least one other enabled memory plugin.
 
 ## Install
 
@@ -41,7 +44,7 @@ To keep one plugin out:
 
 ## What changes when a plugin becomes a backend
 
-A backend registers only its search provider. OpenClaw ignores its tools, hooks, services, prompt sections and recall settings, so for example `memory-core` stops registering its own `memory_search` tool (Memory Fusion provides one instead), and its dreaming and auto-capture behavior does not run while it is a backend. Switch `plugins.slots.memory` back to restore the original owner.
+A backend registers only its search provider. OpenClaw ignores its tools, hooks, services, prompt sections and recall settings, so for example `memory-core` stops registering its own `memory_search` tool (Memory Fusion provides one instead), and its dreaming does not run while it is a backend. Memory Fusion takes over the memory prompt section, Active Memory's recall tools and the pre-compaction flush. Switch `plugins.slots.memory` back to restore the original owner.
 
 Backend code still runs inside the Gateway like any enabled plugin. Only enable memory plugins you trust.
 
@@ -53,7 +56,25 @@ All optional, under `plugins.entries.memfusion.config`:
 | --- | --- | --- |
 | `rrfK` | `60` | Reciprocal rank fusion constant. Larger values flatten the gap between ranks. |
 | `weights` | `{}` | Rank weight per backend plugin id, default `1`. `0` drops a backend from results. |
-| `timeoutMs` | `15000` | Deadline per backend for search, get and candidate calls. A slow backend is reported and skipped. |
+| `timeoutMs` | `15000` | Deadline per backend for search, get, store and candidate calls. A slow backend is reported and skipped. |
+| `store` | `"auto"` | Where new memories go. `"auto"`: every backend that accepts writes, or the workspace memory files when none does. `"all"`: every writable backend plus the workspace files. Or a list of backend plugin ids and/or `"workspace"`. |
+
+## Saving memories
+
+`memory_store` and the pre-compaction flush both write through the `store` setting:
+
+- **Backends that accept writes** (they declare `store` in the provider contract) receive the entry with the caller's own permissions.
+- **`"workspace"`** appends to `memory/YYYY-MM-DD.md` in the agent workspace, the same daily file `memory-core` writes and indexes, so it shows up in `memory-core` search. Entries are only ever appended. Sandboxed sessions never write workspace files; they report a warning instead.
+
+Examples:
+
+```json5
+// Save to the daily memory files only (memory-core style)
+{ plugins: { entries: { memfusion: { config: { store: ["workspace"] } } } } }
+
+// Save to one vector store and the daily files
+{ plugins: { entries: { memfusion: { config: { store: ["my-vector-store", "workspace"] } } } } }
+```
 
 ## How results are merged
 

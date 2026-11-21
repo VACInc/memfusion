@@ -84,7 +84,20 @@ export type MemoryProviderCapabilities = {
   pagination: boolean;
   candidates: readonly MemoryCandidateKind[];
   projectFilter: boolean;
+  /** The provider accepts new entries through store(). */
+  store?: boolean;
 };
+
+export type MemoryStoreRequest = {
+  text: string;
+  title?: string;
+  tags?: readonly string[];
+  origin?: "tool" | "flush" | "capture";
+};
+
+export type MemoryStoreResult =
+  | { status: "stored"; reference: MemoryReference }
+  | { status: "rejected"; reason: string };
 
 export type MemoryProviderHandle = {
   capabilities: MemoryProviderCapabilities;
@@ -93,6 +106,7 @@ export type MemoryProviderHandle = {
   health(): Promise<MemoryHealth>;
   candidates?(request: MemoryCandidateRequest): Promise<MemorySearchPage>;
   refresh?(): Promise<void>;
+  store?(request: MemoryStoreRequest): Promise<MemoryStoreResult>;
   close(): Promise<void>;
 };
 
@@ -147,4 +161,13 @@ export type MemfusionConfig = {
   weights?: Record<string, number>;
   /** Per-backend deadline for search, get and candidates calls, in milliseconds. */
   timeoutMs?: number;
+  /**
+   * Where new memories go. "auto" (default): every backend that accepts writes, or the
+   * workspace memory files when none does. "all": every writable backend plus the workspace.
+   * A list names backend plugin ids and/or "workspace".
+   */
+  store?: "auto" | "all" | string[];
 };
+
+/** The workspace memory files (memory/YYYY-MM-DD.md) that memory-core indexes. */
+export const WORKSPACE_TARGET = "workspace";

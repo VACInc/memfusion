@@ -1,6 +1,6 @@
 {
   "name": "@vacinc/memfusion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenClaw memory fusion: one memory slot owner that searches every enabled memory plugin at once and merges results by rank.",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,9 +20,16 @@
   "bugs": {
     "url": "https://github.com/VACInc/memfusion/issues"
   },
-  "keywords": ["openclaw", "openclaw-plugin", "memory", "fusion"],
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "fusion"
+  ],
   "openclaw": {
-    "extensions": ["./dist/index.js"],
+    "extensions": [
+      "./dist/index.js"
+    ],
     "compat": {
       "pluginApi": ">=2026.11.7",
       "minGatewayVersion": "2026.11.7"
@@ -38,12 +45,19 @@
     "check": "tsc --noEmit",
     "test": "node --test --import tsx test/*.test.ts"
   },
-  "files": ["dist/", "assets/", "openclaw.plugin.json", "README.md"],
+  "files": [
+    "dist/",
+    "assets/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
   "peerDependencies": {
     "openclaw": ">=2026.11.7"
   },
   "peerDependenciesMeta": {
-    "openclaw": { "optional": true }
+    "openclaw": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
