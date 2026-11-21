@@ -41,7 +41,6 @@ async function withDeadline<T>(promise: Promise<T>, ms: number, label: string): 
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new BackendTimeoutError(`${label} timed out after ${ms} ms`)), ms);
-        timer.unref?.();
       }),
     ]);
   } finally {
