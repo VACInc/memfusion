@@ -50,14 +50,13 @@ test("memory_search uses session authority and memory_get reads the hit", async 
 
 test("caller context goes stale once the tool call finishes", async () => {
   const seen: MemoryProviderOpenParams[] = [];
-  const tools = createMemoryTools({ agentId: "main" }, fusedOpener(seen))!;
+  const tools = createMemoryTools({ agentId: "main", sessionKey: "agent:main:chat" }, fusedOpener(seen))!;
   await tools[0]!.execute("1", { query: "fact" });
   assert.throws(() => seen[0]!.context.assertCurrent(), /completed/);
-  assert.deepEqual(seen[0]!.context.authority, { kind: "host", operation: "memfusion.tool" });
 });
 
 test("tools refuse to run when another plugin owns the memory slot", async () => {
-  const tools = createMemoryTools({ agentId: "main" }, async () => ({
+  const tools = createMemoryTools({ agentId: "main", sessionKey: "agent:main:chat" }, async () => ({
     providerId: "memory-core",
     provider: fakeBackend("memory-core", []),
   }))!;
@@ -65,8 +64,9 @@ test("tools refuse to run when another plugin owns the memory slot", async () =>
   assert.match(out.error, /owned by memory-core/);
 });
 
-test("no tools without an agent", () => {
+test("no tools without an agent or a session, so host authority is never borrowed", () => {
   assert.equal(createMemoryTools({}, fusedOpener()), null);
+  assert.equal(createMemoryTools({ agentId: "main" }, fusedOpener()), null);
 });
 
 test("register wires the provider runtime and both tools", async () => {

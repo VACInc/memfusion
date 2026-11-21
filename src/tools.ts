@@ -71,16 +71,15 @@ function backendOf(reference: MemoryReference): string | undefined {
 
 function callerContext(ctx: ToolContext, signal: AbortSignal | undefined, done: () => boolean): MemoryCallerContext {
   return {
-    authority: ctx.sessionKey
-      ? {
-          kind: "session",
-          sessionKey: ctx.sessionKey,
-          sandboxed: ctx.sandboxed === true,
-          ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-          ...(ctx.conversationRecall ? { conversationRecall: ctx.conversationRecall } : {}),
-          ...(ctx.memoryAudience ? { audience: ctx.memoryAudience } : {}),
-        }
-      : { kind: "host", operation: "memfusion.tool" },
+    // Tools only exist for session callers, so the host always applies session policy.
+    authority: {
+      kind: "session",
+      sessionKey: ctx.sessionKey!,
+      sandboxed: ctx.sandboxed === true,
+      ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      ...(ctx.conversationRecall ? { conversationRecall: ctx.conversationRecall } : {}),
+      ...(ctx.memoryAudience ? { audience: ctx.memoryAudience } : {}),
+    },
     ...(signal ? { signal } : {}),
     assertCurrent() {
       if (done()) throw new Error("Memory Fusion tool call has completed.");
@@ -114,7 +113,8 @@ async function withProvider<T>(
 }
 
 export function createMemoryTools(ctx: ToolContext, openProvider: OpenProvider): MemoryTool[] | null {
-  if (!ctx.agentId) return null;
+  // Without a session the tool would have to borrow host authority; fail closed instead.
+  if (!ctx.agentId || !ctx.sessionKey) return null;
   return [
     {
       name: "memory_search",
