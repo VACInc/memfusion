@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { text } from "node:stream/consumers";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { createRequire } from "node:module";
@@ -43,20 +43,20 @@ const lanceText = "Lanceamethyst belongs to the fixture.";
 const appended = "Workspaceagate";
 const runCli = (...args) => {
   const result = spawnSync(process.execPath, [entry, ...args], {
-    env, cwd: root, encoding: "utf8", timeout: 45_000,
+    env, cwd: root, encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL",
   });
-  assert.ifError(result.error);
+  assert.ifError(result.error && new Error(`${args.join(" ")}: ${result.error.message}\n${result.stderr}\n${result.stdout}`));
   return result;
 };
 
 let gateway;
 let embeddings;
 let gatewayOutput = "";
-async function invoke(tool, args) {
+async function invoke(tool, args, sessionKey = "agent:main:main") {
   const response = await fetch(`${url}/tools/invoke`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tool, args, sessionKey: "main" }),
+    body: JSON.stringify({ tool, args, sessionKey }),
     signal: AbortSignal.timeout(45_000),
   });
   const body = await response.json();
@@ -117,8 +117,21 @@ try {
       },
     };
   }
+  const sandboxWorkspace = path.join(root, "sandbox-workspace");
+  await mkdir(sandboxWorkspace);
   const config = {
-    agents: { defaults: { workspace } },
+    agents: {
+      ownership: "explicit",
+      defaults: { workspace, systemAgent: { agentId: "main" } },
+      entries: {
+        main: { workspace },
+        sandbox: {
+          workspace: sandboxWorkspace,
+          sandbox: { mode: "all", workspaceAccess: "none" },
+          tools: { sandbox: { tools: { allow: ["memory_store"] } } },
+        },
+      },
+    },
     gateway: { port, mode: "local", bind: "loopback", auth: { mode: "none" }, controlUi: { enabled: false } },
     discovery: { mdns: { mode: "off" } },
     cron: { enabled: false },
@@ -136,7 +149,7 @@ try {
     },
   };
   await writeFile(configPath, JSON.stringify(config));
-  const init = runCli("wiki", "init");
+  const init = runCli("wiki", "init", "--agent", "main");
   assert.equal(init.status, 0, init.stderr || init.stdout);
   await writeFile(path.join(vault, "sources", "quartz.md"), `---\npageType: source\nid: source.quartz\ntitle: ${wiki}\n---\n\n# ${wiki}\n\n${wiki} belongs to the fixture.\n`);
   gateway = spawn(process.execPath, [entry, "gateway", "run"], { env, cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -178,17 +191,28 @@ try {
     await setTimeout(250);
   }
   console.log(`Gateway tools verified workspace search, Wiki search and get, and workspace watcher indexing after ${Math.round(performance.now() - start)} ms`);
+  const denied = await invoke("memory_store", { text: "Sandboxruby" }, "agent:sandbox:main");
+  assert.equal(denied.status, "rejected", JSON.stringify(denied));
+  assert.match(denied.reason, /sandboxed/);
+  await assert.rejects(readdir(path.join(sandboxWorkspace, "memory")), { code: "ENOENT" });
+  console.log("Gateway tools verified the flush persistence tool refuses sandbox workspace writes");
+
   await stopGateway();
+  // Scope the offline CLI probe to the built-in sidecar and Wiki.
+  config.plugins.load.paths = [plugin];
+  config.plugins.allow = ["memfusion", "memory-core", "memory-wiki"];
+  delete config.plugins.entries["memory-lancedb-pro"];
   config.plugins.entries["memory-core"].config.dreaming.enabled = true;
   await writeFile(configPath, JSON.stringify(config));
-  const statusCli = runCli("memory", "status", "--json");
+  const statusCli = runCli("memory", "status", "--agent", "main", "--json");
   assert.equal(statusCli.status, 0, statusCli.stderr || statusCli.stdout);
-  const [status] = JSON.parse(statusCli.stdout);
+  const status = JSON.parse(statusCli.stdout).find(({ agentId }) => agentId === "main");
+  assert.ok(status);
   assert.equal(status.provider, "memfusion");
   assert.equal(status.memoryCore, "consolidation-sidecar");
   assert.ok(!Object.hasOwn(status.health.details?.backends ?? {}, "memory-core"),
     "The host now exposes the dreaming sidecar as a backend; revisit this check and the documented limitation.");
-  const searchCli = runCli("memory", "search", original, "--json");
+  const searchCli = runCli("memory", "search", original, "--agent", "main", "--json");
   assert.equal(searchCli.status, 1, searchCli.stderr || searchCli.stdout);
   assert.match(searchCli.stdout, /memfusion/);
   console.log("CLI verified selected-provider status, Memory Core consolidation mode, and owner-specific search refusal");

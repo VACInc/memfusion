@@ -99,3 +99,47 @@ test("the corpus registry selects Memory Wiki and tolerates older SDKs", async (
   }]));
   assert.equal((await provider?.search({ query: "topic" }))?.hits[0]?.excerpt, "wiki");
 });
+
+test("Wiki requires a current lease for every search and read, including after awaiting the corpus", async () => {
+  let current = true;
+  let searched = 0;
+  let read = 0;
+  const operator = { kind: "operator" as const, scopes: ["operator.read"], sessionKey: "unexpected", sandboxed: true };
+  const [backend] = wikiBackends({
+    cfg: {},
+    agentId: "operator-agent",
+    context: {
+      authority: operator,
+      assertCurrent() { assert.ok(current, "stale lease"); },
+    },
+  }, [{
+    pluginId: "memory-wiki",
+    supplement: {
+      async search({ agentSessionKey, sandboxed }) {
+        assert.equal(agentSessionKey, undefined);
+        assert.equal(sandboxed, false);
+        searched++;
+        current = false;
+        return [];
+      },
+      async get() {
+        read++;
+        current = false;
+        return null;
+      },
+    },
+  }]);
+  const { handle } = backend!;
+  assert.deepEqual(handle.capabilities, { sources: ["memory"], candidates: [], pagination: false, projectFilter: true });
+  assert.deepEqual(await handle.health(), { status: "ready" });
+  const request = { reference: { providerId: "memory-wiki", id: "wiki.md" } };
+  await assert.rejects(handle.search({ query: "expired while searching" }), /stale lease/);
+  assert.equal(searched, 1);
+  await assert.rejects(handle.search({ query: "already expired" }), /stale lease/);
+  assert.equal(searched, 1);
+  await assert.rejects(handle.get(request), /stale lease/);
+  assert.equal(read, 0);
+  current = true;
+  await assert.rejects(handle.get(request), /stale lease/);
+  assert.equal(read, 1);
+});
