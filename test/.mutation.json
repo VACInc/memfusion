@@ -1,0 +1,7 @@
+{
+  "name": "memfusion-wiki-workspace",
+  "sources": ["src/wiki.ts", "src/fusion.ts"],
+  "test_cmd": "node --test --import tsx test/*.test.ts",
+  "language": "ts",
+  "timeout_s": 60
+}

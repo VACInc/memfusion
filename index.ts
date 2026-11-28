@@ -1,6 +1,7 @@
 import { buildPromptSection, resolveFlushPlan, TOOL_NAMES } from "./src/capability.js";
 import { openFusion } from "./src/fusion.js";
 import { createMemoryTools, OWNER_ID, type OpenProvider, type ToolContext } from "./src/tools.js";
+import { listWikiCorpora, wikiBackends } from "./src/wiki.js";
 import type { MemfusionConfig, MemoryProviderOpenParams } from "./src/types.js";
 
 export { createFusionHandle, fuseCapabilities, openFusion } from "./src/fusion.js";
@@ -35,7 +36,7 @@ export function registerMemfusion(api: MemfusionPluginApi, openProvider: () => P
   const config = (api.pluginConfig ?? {}) as MemfusionConfig;
   api.registerMemoryCapability({
     providerRuntime: {
-      open: (params) => openFusion(OWNER_ID, params, config),
+      open: async (params) => openFusion(OWNER_ID, params, config, wikiBackends(params, await listWikiCorpora())),
     },
     promptBuilder: buildPromptSection,
     providerFlushPlanResolver: resolveFlushPlan,

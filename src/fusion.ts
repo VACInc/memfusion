@@ -290,18 +290,19 @@ export async function openFusion(
   ownerId: string,
   params: MemoryProviderOpenParams,
   config: MemfusionConfig = {},
+  supplements: readonly OpenBackend[] = [],
 ): Promise<MemoryProviderOpenResult> {
   const access = params.backends;
-  if (!access) {
+  if (!access && supplements.length === 0) {
     return {
       provider: null,
       error:
         "Memory Fusion has no memory backends. Enable another memory plugin, and use an OpenClaw build with memory backend support.",
     };
   }
-  const listed = access.list();
-  const settled = await Promise.allSettled(listed.map(({ id }) => access.open(id)));
-  const opened: OpenBackend[] = [];
+  const listed = access?.list() ?? [];
+  const settled = access ? await Promise.allSettled(listed.map(({ id }) => access.open(id))) : [];
+  const opened: OpenBackend[] = [...supplements];
   const failures: BackendFailure[] = [];
   settled.forEach((outcome, index) => {
     const backendId = listed[index]!.id;
